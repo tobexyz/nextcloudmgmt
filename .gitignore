@@ -1,3 +1,5 @@
+test.py
+*.kate-swp
 *.un~
 .envrc
 # Byte-compiled / optimized / DLL files
