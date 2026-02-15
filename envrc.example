@@ -1,0 +1,15 @@
+# --- CONFIGURATION ---
+# Use App Passwords created in Nextcloud (Settings > Security)
+export NC_URL="https://your-server-url.com"
+# Anchor User (The technical owner of resources)
+export NC_ANCHOR_USER= "ngo_anchor"
+export NC_ANCHOR_APP_PW="xxxx-xxxx-xxxx-xxxx-xxxx"
+# Global group for read-only access
+export NC_ALL_MEMBERS_GROUP="all_users"
+export NC_ADMIN_GROUP="admin"
+export NC_QUOTA_GB=10
+export NC_COLLECTIVE_NAME="Wiki"
+export NC_PUB_FOLDER_PREFIX="01"
+export NC_PRIV_FOLDER_PREFIX="02"
+export NC_PUBLIC_SUBFOLDER="Oeffentlich"
+export NC_SUBFOLDERS="Output_Public,Internal,Archive,Special_Project
