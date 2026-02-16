@@ -109,8 +109,9 @@ def create_group_folder(group_name):
         print(f"❌ Failed to enable acl: {resp.text}")
         return False
     # Set Permissions (31 = All permissions, 1 = Read only)
-    # give only admin permission to the groupfolder!!
-    #      
+    # give anchor_user permission to the groupfolder!!
+    #   
+    print("Add Admin group to groupfolder")   
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": ADMIN_GROUP})
     if resp.status_code != 200:
@@ -121,7 +122,23 @@ def create_group_folder(group_name):
     if resp.status_code != 200:
         print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
         return False
-   
+    print("✅ Successfully added Admin group to groupfolder")   
+    # Set Permissions (31 = All permissions, 1 = Read only)
+    # give anchor_user permission to the groupfolder!!
+    #      
+    print("Add group {group_name} to groupfolder")   
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+                  auth=auth, headers=ocs_headers, data={"group": group_name})
+    if resp.status_code != 200:
+        print(f"❌ Failed to create premisson to group admin on groupfolder: {resp.text} code: {resp.status_code}")
+        return False
+    
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{group_name}",
+                  auth=auth, headers=ocs_headers, data={"permissions": 31})
+    if resp.status_code != 200:
+        print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
+        return False
+    print(f"✅ Successfully added group {group_name} to groupfolder")   
 
     # Create subfolder structure via WebDAV
 
@@ -156,7 +173,16 @@ def create_group_folder(group_name):
             else:
                 print(f"✅ Grant read access for all to subfolder {subfolder_name}")
         sleep()
-            
+
+	
+    print("Remove Admin group from groupfolder")   
+    resp = requests.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
+                  auth=auth, headers=ocs_headers)
+    if resp.status_code != 200:
+        print(f"❌ Failed to remove admin group from groupfolder: {resp.text} code: {resp.status_code}")
+        return False
+    print(f"✅ Successfully removed admin group from groupfolder")   
+
     return True
         
 
