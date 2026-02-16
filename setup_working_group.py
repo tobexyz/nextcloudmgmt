@@ -46,7 +46,7 @@ def grant_read_access(group_folder, subfolder):
                          "shareWith": f"{ALL_MEMBERS_GROUP}",
                          "permissions":17}) # 1 allow read + 16 allow share
     if resp.status_code != 200:
-        print(f"   ❌ Failed to grant read access: {resp.text}")
+        print(f"❌ Failed to grant read access: {resp.text}")
         return False
 
     
@@ -60,7 +60,7 @@ def grant_write_access(group_name, group_folder, subfolder):
                          "permissions":31}) # 31 full access
 
     if resp.status_code != 200:
-        print(f"   ❌ Failed to grant write access: {resp.text}")
+        print(f"❌ Failed to grant write access: {resp.text}")
         return False
     return True
 
@@ -80,9 +80,9 @@ def create_group_folder(group_name):
     )
 
     if folder_req.status_code != 200:
-        print("   ❌ Error: Could not create group folder.")
-        print(f"   ❌ API Error: Status {folder_req.status_code}")
-        print(f"   Response: {folder_req.text}") # Das zeigt uns den echten Fehlergrund!
+        print("❌ Error: Could not create group folder.")
+        print(f"❌ API Error: Status {folder_req.status_code}")
+        print(f"❌ Response: {folder_req.text}") 
         return False
 
     folder_id = folder_req.json()['ocs']['data']['id']
@@ -99,14 +99,14 @@ def create_group_folder(group_name):
         timeout=10
     )
     if resp.status_code != 200:
-        print(f"   ❌ Failed to create quota: {resp.text}")
+        print(f"❌ Failed to create quota: {resp.text}")
         return False
     sleep()
     # 1. Enable ACL support
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/acl",
               auth=auth, headers=ocs_headers, data={"acl": "1"})
     if resp.status_code != 200:
-        print(f"   ❌ Failed to enable acl: {resp.text}")
+        print(f"❌ Failed to enable acl: {resp.text}")
         return False
     # Set Permissions (31 = All permissions, 1 = Read only)
     # give only admin permission to the groupfolder!!
@@ -114,12 +114,12 @@ def create_group_folder(group_name):
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": ADMIN_GROUP})
     if resp.status_code != 200:
-        print(f"   ❌ Failed to create premisson to group admin on groupfolder: {resp.text} code: {resp.status_code}")
+        print(f"❌ Failed to create premisson to group admin on groupfolder: {resp.text} code: {resp.status_code}")
         return False
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
                   auth=auth, headers=ocs_headers, data={"permissions": 31})
     if resp.status_code != 200:
-        print(f"   ❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
+        print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
         return False
    
 
@@ -238,30 +238,72 @@ def share_calendar_with_group(calendar_id, group_name, write_access):
 
 def create_circle_and_collective(group_name):
     # Note: Circles are the permission layer for Collectives
-    print(f"Creating Circle for {group_name}...")
-    circle_name=f"Circle_{group_name}"
-    circle_resp = requests.post(
-        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles",
+    # circles are automatically created by collective 
+    #print(f"Creating Circle for {group_name}...")
+    #circle_name=f"Circle_{group_name}"
+    #circle_resp = requests.post(
+    #    f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles",
+    #    auth=auth,
+    #    headers=ocs_headers,
+    #    data={
+    #        "name": circle_name,
+    #        "config": 1,  # 1 = Secret (Mitglieder werden direkt eingebunden)
+    #        "description": f"Circle for {group_name} Collective",
+    #        "source": 1   # Signalisiert eine manuelle/App-Erstellung            
+    #    }
+    #)
+    #
+    #"personal": 0            
+
+    #if circle_resp.status_code != 200 and circle_resp.status_code != 201:        
+    #    print(f"❌ Failed to create Circle: {circle_resp.text}")
+    #    return False
+    #else:
+    #    print(f"✅ Successfully created circle for group: {circle_name}")
+
+
+    #circle_id = circle_resp.json()['ocs']['data']['id']
+    #print(f"✅ Circle created: {circle_id}")
+
+    #sleep()
+    # Create the Collective
+    print(f"Creating Collective '{group_name}'...")
+    resp = requests.post(
+        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives",
         auth=auth,
         headers=ocs_headers,
         data={
-            "name": circle_name,
-            "type": 2, # 1 = Private Circle
-            "description": f"Circle for {group_name} Collective",
-            "personal": 0
-
+            "name": group_name,            
+            "emoji":"👥"            
         }
     )
 
-    if circle_resp.status_code != 200 and circle_resp.status_code != 201:        
-        print(f"   ❌ Failed to create Circle: {circle_resp.text}")
-        return False
+    if resp.status_code == 200:
+        print(f"✅ Collective created successfully!")
     else:
-        print(f"✅ Successfully created circle for group: {circle_name}")
+        print(f"❌ Failed to create Collective: {resp.text}")
+        return False
+    
+    collective_id = resp.json()['ocs']['data']['collective']['id']
+    circle_id = resp.json()['ocs']['data']['collective']['circleId']
+    print(f"✅ Collective created: {collective_id}")
+    print(f"✅ Circle created: {circle_id}")
+    
+    sleep()
+    print(f"set collective to allow only moderators and administrators to edit")
+    resp = requests.put(
+        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives/{collective_id}/shareLevel",
+        auth=auth,
+        headers=ocs_headers,
+        data={"level": 4})
+    
 
+    if resp.status_code == 200:
+        print(f"✅ Collective edit right to moderators and administrators successfully set!")
+    else:
+        print(f"❌ Failed set edit right to moderators and administrators on collective: {resp.text}")
+        return False
 
-    circle_id = circle_resp.json()['ocs']['data']['id']
-    print(f"   ✅ Circle created: {circle_id}")
     sleep()
     # contributor right to group
     if not add_group_to_circle(circle_id,group_name, 4):
@@ -270,26 +312,6 @@ def create_circle_and_collective(group_name):
     if not add_group_to_circle(circle_id,ALL_MEMBERS_GROUP, 1):
         return False
 
-    sleep()
-    # 5. Create the Collective
-    print(f"Step 5: Creating Collective '{group_name}'...")
-    # Collectives API endpoint
-    resp = requests.post(
-        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives",
-        auth=auth,
-        headers=ocs_headers,
-        data={
-            "circleId": circle_id,
-            "name": group_name
-        }
-    )
-    if resp.status_code == 200:
-        print(f"   ✅ Collective created successfully!")
-    else:
-        print(f"   ❌ Failed to create Collective: {resp.text}")
-        return False
-    
-
 
     return True
 
@@ -297,26 +319,36 @@ def create_circle_and_collective(group_name):
 def add_group_to_circle(circle_id, group_name, level):
      # Add the Group to the Circle
     print(f"   -> Adding group '{group_name}' to Circle...")
-    payload = json.dumps({"members":[{"id": group_name,"type":2}]})
+    payload = json.dumps({"userId": group_name,"type":2})
     headers = ocs_headers | {"content-type":"application/json"}    
     resp = requests.post(
-        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles/{circle_id}/members/multi",
+        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles/{circle_id}/members",
         auth=auth,
         headers=headers,
         data=payload
     )
     if resp.status_code == 200:
-        print(f"   ✅ Group added to Circle")
+        print(f"✅ Group added to Circle")
     else:
-        print(f"   ❌ Failed to add group to Cricle: {resp.text}")
+        print(f"❌ Failed to add group to Cricle: {resp.text}")
         return False
     sleep()
-    member_id= resp.json()['ocs']['data'][0]['id']
+    member_id= resp.json()['ocs']['data']['id']
     print(f"member_id: {member_id}")
+    
+    
+    
     if level == 1:
         print(f"✅ new groups already on level 1 no need to change the level for the group")
         return True
-    # Grant  level to group    
+    set_grant_level_of_member(circle_id, member_id, level)
+    
+    return True
+
+def set_grant_level_of_member(circle_id, member_id, level):
+    # Grant level to member
+    print(f"Granting level {level} to member {member_id} of circle {circle_id}")
+    headers = ocs_headers | {"content-type":"application/json"} 
     resp = requests.put(
         f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles/{circle_id}/members/{member_id}/level",
         auth=auth,
@@ -324,9 +356,9 @@ def add_group_to_circle(circle_id, group_name, level):
         data=json.dumps({"level": level})
     )
     if resp.status_code == 200:
-        print(f"   ✅ Group granted as {level} to Circle")
+        print(f"✅ Member {member_id} granted as {level} to Circle")
     else:
-        print(f"   ❌ Failed to grant {level} right to group to Cricle: {resp.text}")
+        print(f"❌ Failed to grant {level} right to of member {member_id} to Cricle: {resp.text}")
         return False
     return True
 
@@ -341,8 +373,8 @@ def create_group(group_name):
     if response.status_code == 200:
         print(f"✅ Group created: {group_name}")
     else:
-        print("   ❌ Error: Could not create group folder.")
-        print(f"   ❌ API Error: Status {response.status_code}")
+        print("❌ Error: Could not create group folder.")
+        print(f"❌ API Error: Status {response.status_code}")
         return False
     sleep()
     # 2. Add Anchor User to the new group (Safety net)
@@ -354,10 +386,31 @@ def create_group(group_name):
     if response.status_code == 200:
         print(f"✅ Added anchor_user to the group")
     else:
-        print("   ❌ Error: Could not add anchor user to the group.")
-        print(f"   ❌ API Error: Status {response.status_code}")
+        print("❌ Error: Could not add anchor user to the group.")
+        print(f"❌ API Error: Status {response.status_code}")
         return False
     return True
+
+
+def create_talk_room(group_name):
+    print(f"Creating Talk room for group '{group_name}'...")
+    headers = ocs_headers | {"content-type":"application/json"}    
+    resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v4/room",auth=auth, headers=headers, 
+                     data=json.dumps({"roomType": 2, 
+                                      "roomName": group_name,
+                                      "listable":1,
+                                      "participants":{"groups":[group_name]}}
+                                      ))
+    if resp.status_code == 200 or resp.status_code == 201:
+        print(f"✅ Talk room for group {group_name} created.")
+    else:
+        print(f"❌ Failed to create Talk room for group: {resp.text}")
+        return False
+    return True    
+
+
+
+
 
 def run_group_setup(group_name):
     """
@@ -390,8 +443,10 @@ def run_group_setup(group_name):
         print("❌ Stopping setup due to calendar creation failure.")
         return False
     
-    
-
+    result = create_talk_room(group_name)
+    if not result:
+        print("❌ Stopping setup due to talk romm creation failure.")
+        return False
     return True
 
 
