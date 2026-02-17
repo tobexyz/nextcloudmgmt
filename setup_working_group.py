@@ -52,18 +52,46 @@ def grant_read_access(group_folder, subfolder):
     
     return True
 
-def grant_write_access(group_name, group_folder, subfolder):
+def grant_write_access(group_name, group_folder, subfolder):   
     resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
                      data={"path": f"{group_folder}/{subfolder}",
-                         "shareType": 1,
+                        "shareType": 1,
                          "shareWith": f"{group_name}",
                          "permissions":31}) # 31 full access
-
     if resp.status_code != 200:
         print(f"❌ Failed to grant write access: {resp.text}")
         return False
     return True
 
+def grant_acl_access(group_name, group_folder, subfolder, mask, permisisons):
+    headers = {'Content-Type': 'application/xml'} | ocs_headers
+    xml_body=f"""<?xml version="1.0"?>
+        <d:propertyupdate  xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns" xmlns:ocs="http://open-collaboration-services.org/ns">
+          <d:set>
+           <d:prop>
+              <nc:acl-list> 
+              <nc:acl>
+              <nc:acl-mapping-type>group</nc:acl-mapping-type>
+              <nc:acl-mapping-id>{group_name}</nc:acl-mapping-id>
+              <nc:acl-mask>{mask}</nc:acl-mask>
+              <nc:acl-permissions>{permisisons}</nc:acl-permissions></nc:acl></nc:acl-list>
+              </d:prop>
+          </d:set>
+        </d:propertyupdate>"""
+    response = requests.request(
+        "PROPPATCH",
+        f"{NEXTCLOUD_URL}/remote.php/dav/files/anchor_user/{group_folder}/{subfolder}",
+        auth=auth,
+        data=xml_body,
+        headers=headers
+    )
+    
+    if response.status_code in [200, 207]:
+        print("✅ACL erfolgreich gesetzt!")
+    else:
+        print(f"❌ Fehler: {response.status_code} {response.text}")        
+        return False
+    return True
 
 def create_group_folder(group_name):
     """
@@ -124,7 +152,7 @@ def create_group_folder(group_name):
         return False
     print("✅ Successfully added Admin group to groupfolder")   
     # Set Permissions (31 = All permissions, 1 = Read only)
-    # give anchor_user permission to the groupfolder!!
+    # give group permission to the groupfolder!!
     #      
     print("Add group {group_name} to groupfolder")   
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
@@ -134,12 +162,19 @@ def create_group_folder(group_name):
         return False
     
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{group_name}",
-                  auth=auth, headers=ocs_headers, data={"permissions": 31})
+                  auth=auth, headers=ocs_headers, data={"permissions": 31}) 
     if resp.status_code != 200:
         print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
         return False
     print(f"✅ Successfully added group {group_name} to groupfolder")   
 
+    if not grant_acl_access(group_name, group_name, "", "30" ,"31"): #write on root for group       
+        print(f"❌ Failed to grant write for group on root")
+        return False
+    else:
+        print(f"✅ Grant write for group on root")
+
+    
     # Create subfolder structure via WebDAV
 
     options = {
@@ -161,19 +196,31 @@ def create_group_folder(group_name):
             client.mkdir(subfolder_name)
             print(f"Successfully created folder: '{subfolder_name}'")
         sleep()
-        #acl
-        if sub != PUBLIC_SUBFOLDER:
-            if not grant_write_access(group_name, folder_name,subfolder_name):
-                print(f"❌ Failed to grant write for group to subfolder {subfolder_name}")
-            else:
-                print(f"✅ Grant write access for group to subfolder {subfolder_name}")
+        
+        if not grant_acl_access(group_name, group_name, subfolder_name, "30", "31"): #write on folder for group
+            print(f"❌ Failed to grant write for group to subfolder {subfolder_name}")
+            return False
         else:
+            print(f"✅ Grant write access for group to subfolder {subfolder_name}")
+        
+        if not grant_write_access(group_name, folder_name,subfolder_name):
+            print(f"❌ Failed to grant write for group to subfolder {subfolder_name}")
+            return False
+        else:
+            print(f"✅ Grant write access for group to subfolder {subfolder_name}")
+        if sub == PUBLIC_SUBFOLDER:            
             if not grant_read_access(folder_name,subfolder_name):
                 print(f"❌ Failed to grant read access all to sub_folder {subfolder_name}")
+                return False
             else:
                 print(f"✅ Grant read access for all to subfolder {subfolder_name}")
         sleep()
 
+    if not grant_acl_access(group_name, group_name, "", "30" ,"0"): #deny on root for group       
+        print(f"❌ Failed to grant read for group on root")
+        return False
+    else:
+        print(f"✅ Grant read for group on root")
 	
     print("Remove Admin group from groupfolder")   
     resp = requests.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
@@ -182,6 +229,8 @@ def create_group_folder(group_name):
         print(f"❌ Failed to remove admin group from groupfolder: {resp.text} code: {resp.status_code}")
         return False
     print(f"✅ Successfully removed admin group from groupfolder")   
+
+
 
     return True
         
