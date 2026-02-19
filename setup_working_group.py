@@ -367,7 +367,7 @@ def create_circle_and_collective(group_name):
     sleep()
     print(f"set collective to allow only moderators and administrators to edit")
     resp = requests.put(
-        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives/{collective_id}/shareLevel",
+        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives/{collective_id}/editLevel",
         auth=auth,
         headers=ocs_headers,
         data={"level": 4})
