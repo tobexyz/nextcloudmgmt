@@ -13,3 +13,8 @@ export NC_PUB_FOLDER_PREFIX="01"
 export NC_PRIV_FOLDER_PREFIX="02"
 export NC_PUBLIC_SUBFOLDER="Oeffentlich"
 export NC_SUBFOLDERS="Output_Public,Internal,Archive,Special_Project
+#Collectives Backup
+export NC_COLLECTIVES_FOLDER="Collectives"
+export NC_COLLECTIVES_BACKUP_FOLDER="Backup/Collectives"
+export NC_COLLECTIVES_BACKUP_COUNT=10 
+
