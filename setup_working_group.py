@@ -154,7 +154,7 @@ def create_group_folder(group_name):
     # Set Permissions (31 = All permissions, 1 = Read only)
     # give group permission to the groupfolder!!
     #      
-    print("Add group {group_name} to groupfolder")   
+    print(f"Add group {group_name} to groupfolder")   
     resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": group_name})
     if resp.status_code != 200:
@@ -492,6 +492,9 @@ def run_group_setup(group_name):
     Automates the creation of a Nextcloud group, group folder with subfolders,
     and a shared calendar owned by the anchor user.
     """
+    if len(group_name) < 3:
+        print(f"\n💥 Group name too short.")
+        return
 
     print(f"🚀 Starting automation for: {group_name}")
     result = create_group(group_name)    
