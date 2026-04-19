@@ -41,8 +41,8 @@ echo "🚀 Environment ready. Launching $SCRIPT_NAME ..."
 echo "   Server $NC_URL "
 echo "------------------------------------------------"
 
-# 5. Run the actual Python script
-python $SCRIPT_NAME
+# 5. Run the actual Python script with all passed args
+python $SCRIPT_NAME "$@"
 
 # Deactivate after script finishes
 deactivate

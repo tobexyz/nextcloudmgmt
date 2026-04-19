@@ -1,0 +1,40 @@
+global_groups:
+ - all_users
+ - GroupC
+ - GroupC_Lead
+ - GroupC_Subgroup1
+ - GroupC_Subgroup2
+ - GroupC_Subgroup3
+
+groupfolders:
+ - name: "GroupC"
+   folders:
+   - path: "01_GroupC_Public"
+     block: []
+     read: ["all_users"]
+     write: ["GroupC"]
+   - path: "01_GroupC_Private"
+     block: []
+     read: ["GroupC"]
+     write: ["GroupC"]
+   - path: "01_GroupC_Archiv"
+     block: []
+     read: ["GroupC"]
+     write: ["GroupC"]
+   - path: "01_GroupC_Private/SubGroup1"
+     block: []
+     read: ["GroupC"]
+     write: ["GroupC_Subgroup1", "GroupC_Lead"]
+   - path: "01_GroupC_Private/SubGroup1/internal"
+     block: ["GroupC"]
+     read: ["GroupC_Subgroup1", "GroupC_Lead"]
+     write: ["GroupC_Subgroup1", "GroupC_Lead"]
+   - path: "01_GroupC_Private/SubGroup2"
+     block: []
+     read: ["GroupC"]
+     write: ["GroupC_Subgroup2", "GroupC_Lead"]
+   - path: "01_GroupC_Private/SubGroup2/internal"
+     block: ["GroupC"]
+     read: ["GroupC_Subgroup2", "GroupC_Lead"]
+     write: ["GroupC_Subgroup2", "GroupC_Lead"]
+
