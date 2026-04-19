@@ -1,0 +1,7 @@
+nextcloud_data
+postgres_data
+venv
+.git
+*.pyc
+__pycache__
+README-TEST.md

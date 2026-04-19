@@ -1,3 +1,7 @@
+.kiro/
+.kiroignore
+.opencode/
+reports/
 temp_collectives
 *.orig
 test.py

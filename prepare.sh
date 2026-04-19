@@ -37,7 +37,8 @@ else
 fi
 
 echo "------------------------------------------------"
-echo "🚀 Environment ready. Launching $SCRIPT_NAME..."
+echo "🚀 Environment ready. Launching $SCRIPT_NAME ..."
+echo "   Server $NC_URL "
 echo "------------------------------------------------"
 
 # 5. Run the actual Python script
