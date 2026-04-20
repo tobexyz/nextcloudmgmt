@@ -4,10 +4,12 @@
 VENV_DIR="venv"
 PYTHON_BIN="python3"
 REQUIREMENTS="requirements.txt"
-SCRIPT_NAME="setup_working_group.py"
+SCRIPT_NAME="${1:-setup_working_group.py}"
 
 echo "------------------------------------------------"
 echo "🌐 NGO Nextcloud Admin Toolkit - Preparation"
+echo "------------------------------------------------"
+echo "📝 Target script: $SCRIPT_NAME"
 echo "------------------------------------------------"
 
 # 1. Check if Python is installed
@@ -37,11 +39,12 @@ else
 fi
 
 echo "------------------------------------------------"
-echo "🚀 Environment ready. Launching $SCRIPT_NAME ..."
-echo "   Server $NC_URL "
+echo "🚀 Environment ready. Launching $SCRIPT_NAME..."
+echo "   Server $NC_URL"
 echo "------------------------------------------------"
 
-# 5. Run the actual Python script with all passed args
+# 5. Run the actual Python script with remaining args
+shift
 python $SCRIPT_NAME "$@"
 
 # Deactivate after script finishes

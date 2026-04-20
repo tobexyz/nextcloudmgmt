@@ -14,6 +14,7 @@ ANCHOR_USER = os.getenv("NC_ANCHOR_USER")
 ANCHOR_APP_PW = os.getenv("NC_ANCHOR_APP_PW")
 ALL_MEMBERS_GROUP = os.getenv("NC_ALL_MEMBERS_GROUP")
 ADMIN_GROUP= os.getenv("NC_ADMIN_GROUP")
+ANCHOR_GROUP = os.getenv("NC_ANCHOR_GROUP", "Anchor_Group")
 QUOTA_GB_STR =  os.getenv("NC_QUOTA_GB")
 QUOTA_GB = int(QUOTA_GB_STR)
 PUBLIC_SUBFOLDER = os.getenv("NC_PUBLIC_SUBFOLDER")
@@ -216,7 +217,24 @@ def create_group_folder(group_name):
         print(f"❌ Failed to grant write for group on root")
         return False
     else:
-        print(f"✅ Grant write for group on root")
+        print(f"✅ Grant write for group on root")    
+
+    # Add Anchor_Group with full access for administration
+    print(f"Add {ANCHOR_GROUP} to groupfolder")   
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+                  auth=auth, headers=ocs_headers, data={"group": ANCHOR_GROUP})
+    if resp.status_code != 200:
+        print(f"❌ Failed to add {ANCHOR_GROUP} to groupfolder: {resp.text} code: {resp.status_code}")
+        return False
+    
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ANCHOR_GROUP}",
+                  auth=auth, headers=ocs_headers, data={"permissions": 31}) 
+    if resp.status_code != 200:
+        print(f"❌ Failed to set permissions on groupfolder for {ANCHOR_GROUP}: {resp.text} code: {resp.status_code}")
+        return False
+    print(f"✅ Successfully added {ANCHOR_GROUP} to groupfolder")   
+
+    # No ACL needed on root - group permissions on folder are sufficient
 
     
     # Create subfolder structure via WebDAV
@@ -259,12 +277,13 @@ def create_group_folder(group_name):
             else:
                 print(f"✅ Grant read access for all to subfolder {subfolder_name}")
         sleep()
-
+ 
     if not grant_acl_access(group_name, group_name, "", "30" ,"0"): #deny on root for group       
         print(f"❌ Failed to grant read for group on root")
         return False
     else:
         print(f"✅ Grant read for group on root")
+        
 	
     print("Remove Admin group from groupfolder")   
     resp = requests.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",

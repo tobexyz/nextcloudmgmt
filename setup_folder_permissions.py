@@ -16,6 +16,7 @@ ANCHOR_USER = os.getenv("NC_ANCHOR_USER")
 ANCHOR_APP_PW = os.getenv("NC_ANCHOR_APP_PW")
 ALL_MEMBERS_GROUP = os.getenv("NC_ALL_MEMBERS_GROUP")
 ADMIN_GROUP = os.getenv("NC_ADMIN_GROUP")
+ANCHOR_GROUP = os.getenv("NC_ANCHOR_GROUP", "Anchor_Group")
 
 SLEEP_TIME = 0.1
 
@@ -25,6 +26,47 @@ ocs_headers = {"OCS-APIRequest": "true", "Accept": "application/json"}
 
 def sleep():
     time.sleep(SLEEP_TIME)
+
+
+def remove_share(group_folder, subfolder, share_with):
+    """Remove a share from a folder."""
+    # Get existing shares - use full path
+    full_path = f"/{group_folder}/{subfolder}"
+    resp = requests.get(
+        f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares?path={full_path}&reshares=true",
+        auth=auth, headers=ocs_headers
+    )
+    
+    if resp.status_code != 200:
+        print(f"   ❌ Failed to get shares: {resp.text}")
+        return False
+    
+    shares = resp.json().get('ocs', {}).get('data', [])
+    
+    if not shares:
+        print(f"   ℹ️  No shares found for {full_path}")
+        return True
+    
+    for share in shares:
+        share_with_user = share.get('share_with')
+        share_type = share.get('share_type')
+        
+        # Check if this is the share we want to remove
+        # share_type 1 = group share, share_type 0 = user share
+        if share_with_user == share_with or (share_type == 1 and share_with == ALL_MEMBERS_GROUP):
+            # Remove the share
+            share_id = share.get('id')
+            resp = requests.delete(
+                f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares/{share_id}",
+                auth=auth, headers=ocs_headers
+            )
+            if resp.status_code == 200:
+                print(f"   ✅ Removed share {share_id} for {share_with_user} (type: {share_type})")
+            else:
+                print(f"   ❌ Failed to remove share {share_id}: {resp.text}")
+                return False
+    
+    return True
 
 
 def ensure_group(group_name):
@@ -96,46 +138,128 @@ def create_folder(client, folder_path):
             print(f"   Created: {current_path}")
 
 
-def apply_acl_permissions(folder_path, groups, mask, permissions):
-    """Apply ACL permissions to a folder."""
+def read_acl_permissions(group_folder, subfolder):
+    """Read ACL permissions for a folder."""
     headers = {'Content-Type': 'application/xml'} | ocs_headers
-    xml_body = f"""<?xml version="1.0"?>
-        <d:propertyupdate  xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns" xmlns:ocs="http://open-collaboration-services.org/ns">
-          <d:set>
-           <d:prop>
-              <nc:acl-list> 
-              <nc:acl>
-              <nc:acl-mapping-type>group</nc:acl-mapping-type>
-              <nc:acl-mapping-id>{{group_name}}</nc:acl-mapping-id>
-              <nc:acl-mask>{mask}</nc:acl-mask>
-              <nc:acl-permissions>{permissions}</nc:acl-permissions></nc:acl></nc:acl-list>
-              </d:prop>
-          </d:set>
-        </d:propertyupdate>"""
+    xml_body = """<?xml version="1.0"?>
+        <d:propfind  xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns" xmlns:ocs="http://open-collaboration-services.org/ns">
+          <d:prop>
+             <nc:acl-list/> 
+          </d:prop>
+        </d:propfind>"""
     
-    for group in groups:
-        xml = xml_body.replace('{group_name}', group)
-        response = requests.request(
-            "PROPPATCH",
-            f"{NEXTCLOUD_URL}/remote.php/dav/files/{ANCHOR_USER}/{folder_path}",
-            auth=auth,
-            data=xml,
-            headers=headers
-        )
+    url = f"{NEXTCLOUD_URL}/remote.php/dav/files/{ANCHOR_USER}/{group_folder}/{subfolder}"
+    response = requests.request(
+        "PROPFIND",
+        url,
+        auth=auth,
+        data=xml_body,
+        headers=headers
+    )
+    
+    if response.status_code in [200, 207]:
+        print(f"   📋 ACL for {group_folder}/{subfolder}:")
+        #print(f"   {response.text}")
+        return response.text
+    else:
+        print(f"   ❌ Failed to read ACL: {response.status_code} {response.text}")
+        return None
+
+
+def parse_existing_acls(acl_xml):
+    """Parse existing ACL XML to extract current ACL entries."""
+    import re
+    acls = []
+    if not acl_xml:
+        return acls
+    
+    # Extract existing ACL entries
+    acl_pattern = r'<nc:acl><nc:acl-mapping-type>([^<]+)</nc:acl-mapping-type><nc:acl-mapping-id>([^<]+)</nc:acl-mapping-id><nc:acl-mask>([^<]+)</nc:acl-mask><nc:acl-permissions>([^<]+)</nc:acl-permissions></nc:acl>'
+    matches = re.findall(acl_pattern, acl_xml)
+    
+    for mapping_type, mapping_id, mask, permissions in matches:
+        acls.append({
+            'type': mapping_type,
+            'id': mapping_id,
+            'mask': mask,
+            'permissions': permissions
+        })
+    
+    return acls
+
+
+def apply_acl_permissions(group_folder, subfolder, permissions_list):
+    """Apply multiple ACL permissions to a folder by merging with existing ones."""
+    # Read existing ACLs
+    existing_xml = read_acl_permissions(group_folder, subfolder)
+    existing_acls = parse_existing_acls(existing_xml)
+    
+    # Build merged ACL list
+    merged_acls = existing_acls.copy()
+    
+    # Add/update permissions from the list
+    for perm in permissions_list:
+        group = perm['group']
+        mask = perm['mask']
+        permissions = perm['permissions']
         
-        if response.status_code in [200, 207]:
-            print(f"   ✅ ACL set for {group}: mask={mask}, permissions={permissions}")
-        else:
-            print(f"   ❌ Failed to set ACL for {group}: {response.status_code} {response.text}")
-            return False
-    return True
+        # Check if ACL for this group already exists
+        found = False
+        for acl in merged_acls:
+            if acl['id'] == group:
+                acl['mask'] = mask
+                acl['permissions'] = permissions
+                found = True
+                break
+        
+        if not found:
+            merged_acls.append({
+                'type': 'group',
+                'id': group,
+                'mask': mask,
+                'permissions': permissions
+            })
+    
+    # Build XML with all ACLs
+    headers = {'Content-Type': 'application/xml'} | ocs_headers
+    acl_entries = ''.join([
+        f'<nc:acl><nc:acl-mapping-type>{acl["type"]}</nc:acl-mapping-type><nc:acl-mapping-id>{acl["id"]}</nc:acl-mapping-id><nc:acl-mask>{acl["mask"]}</nc:acl-mask><nc:acl-permissions>{acl["permissions"]}</nc:acl-permissions></nc:acl>'
+        for acl in merged_acls
+    ])
+    
+    xml_body = f"""<?xml version="1.0"?>
+<d:propertyupdate xmlns:d="DAV:" xmlns:nc="http://nextcloud.org/ns">
+ <d:set>
+ <d:prop>
+ <nc:acl-list>
+ {acl_entries}
+ </nc:acl-list>
+ </d:prop>
+ </d:set>
+</d:propertyupdate>"""
+    
+    url = f"{NEXTCLOUD_URL}/remote.php/dav/files/{ANCHOR_USER}/{group_folder}/{subfolder}"
+    response = requests.request(
+        "PROPPATCH",
+        url,
+        auth=auth,
+        data=xml_body,
+        headers=headers
+    )
+    
+    if response.status_code in [200, 207]:
+        print(f"   ✅ ACLs updated for {len(merged_acls)} groups")
+        return True
+    else:
+        print(f"   ❌ Failed to update ACLs: {response.status_code} {response.text}")
+        return False
 
 
 def apply_permissions_to_folder(folder_config, groupfolder_name):
     """Apply permissions to a single folder."""
-    folder_path = f"{groupfolder_name}/{folder_config['path']}"
+    folder_path = folder_config['path']
     
-    print(f"\nProcessing folder: {folder_path}")
+    print(f"\nProcessing folder: {groupfolder_name}/{folder_path}")
     
     # Create folder if it doesn't exist
     webdav_options = {
@@ -152,23 +276,45 @@ def apply_permissions_to_folder(folder_config, groupfolder_name):
     
     sleep()
     
-    # Apply block permissions (mask 0, permissions 0)
-    if 'block' in folder_config and folder_config['block']:
-        if not apply_acl_permissions(folder_path, folder_config['block'], 0, 0):
-            return False
-        sleep()
+    # Remove share from parent folder to avoid override
+    parent_path = '/'.join(folder_path.split('/')[:-1]) if '/' in folder_path else ''
+    if parent_path:
+        print(f"   Removing share from parent: {parent_path}")
+        remove_share(groupfolder_name, parent_path, ALL_MEMBERS_GROUP)
     
-    # Apply read permissions (mask 1, permissions 1)
-    if 'read' in folder_config and folder_config['read']:
-        if not apply_acl_permissions(folder_path, folder_config['read'], 1, 1):
-            return False
-        sleep()
+    sleep()
     
-    # Apply write permissions (mask 31, permissions 31)
-    if 'write' in folder_config and folder_config['write']:
-        if not apply_acl_permissions(folder_path, folder_config['write'], 31, 31):
-            return False
-        sleep()
+    # Collect all permissions to apply
+    permissions_list = []
+    
+    # Apply block permissions (mask 31, permissions 0 - deny read)
+    # Exclude anchor_user from block permissions
+    block_groups = [g for g in folder_config.get('block', []) if g != ANCHOR_GROUP]
+    for group in block_groups:
+        permissions_list.append({'group': group, 'mask': 31, 'permissions': 0})
+    
+    # Apply read permissions (mask 31, permissions 1)
+    # Exclude anchor_group from read permissions (they have full access by default)
+    read_groups = [g for g in folder_config.get('read', []) if g != ANCHOR_GROUP]
+    for group in read_groups:
+        permissions_list.append({'group': group, 'mask': 31, 'permissions': 1})
+    
+    # Apply write permissions (mask 31, permissions 31) - exclude anchor_group
+    write_groups = [g for g in folder_config.get('write', []) if g != ANCHOR_GROUP]
+    for group in write_groups:
+        permissions_list.append({'group': group, 'mask': 31, 'permissions': 31})
+    
+    # Add Anchor_Group with full access (mask 31, permissions 31) for administration
+    permissions_list.append({'group': ANCHOR_GROUP, 'mask': 31, 'permissions': 31})
+    
+    # Apply all permissions in one request
+    if not apply_acl_permissions(groupfolder_name, folder_path, permissions_list):
+        return False
+    
+    sleep()
+    
+    # Read back ACL for verification
+    read_acl_permissions(groupfolder_name, folder_path)
     
     return True
 
@@ -189,6 +335,9 @@ def process_config(config):
                 all_groups.update(folder_config['read'])
             if 'write' in folder_config:
                 all_groups.update(folder_config['write'])
+    
+    # Add anchor group
+    all_groups.add(ANCHOR_GROUP)
     
     # Ensure all groups exist
     print("\nEnsuring all groups exist...")
@@ -217,7 +366,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Setup folder permissions from YAML config')
-    parser.add_argument('config', help='Path to YAML configuration file')
+    parser.add_argument('config', nargs='?', default='sample-permissions.yaml', help='Path to YAML configuration file')
     args = parser.parse_args()
     
     if not os.path.exists(args.config):

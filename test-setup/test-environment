@@ -3,6 +3,7 @@ export NC_URL="http://localhost:8080"
 export NC_ANCHOR_USER="anchor_user"
 export NC_ANCHOR_APP_PW="anchoruser123"
 export NC_ALL_MEMBERS_GROUP="all_users"
+export NC_ANCHOR_GROUP="Anchor_group"
 export NC_ADMIN_GROUP="admin"
 export NC_QUOTA_GB=10
 export NC_COLLECTIVE_NAME="Wiki"
