@@ -14,6 +14,7 @@ ANCHOR_USER = os.getenv("NC_ANCHOR_USER")
 ANCHOR_APP_PW = os.getenv("NC_ANCHOR_APP_PW")
 ALL_MEMBERS_GROUP = os.getenv("NC_ALL_MEMBERS_GROUP")
 ADMIN_GROUP= os.getenv("NC_ADMIN_GROUP")
+ANCHOR_GROUP = os.getenv("NC_ANCHOR_GROUP", "Anchor_Group")
 QUOTA_GB_STR =  os.getenv("NC_QUOTA_GB")
 QUOTA_GB = int(QUOTA_GB_STR)
 PUBLIC_SUBFOLDER = os.getenv("NC_PUBLIC_SUBFOLDER")
@@ -39,6 +40,51 @@ def sleep():
     time.sleep(SLEEP_TIME)
 
 
+def ensure_all_members_group():
+    """Check if ALL_MEMBERS_GROUP exists, create if not."""
+    if not ALL_MEMBERS_GROUP:
+        print("⚠️  NC_ALL_MEMBERS_GROUP not set, skipping")
+        return True
+    
+    print(f"Checking if group '{ALL_MEMBERS_GROUP}' exists...")
+    resp = requests.get(
+        f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/groups",
+        auth=auth, headers=ocs_headers
+    )
+    
+    if resp.status_code != 200:
+        print(f"❌ Failed to list groups: {resp.text}")
+        return False
+    
+    groups = resp.json().get('ocs', {}).get('data', {}).get('groups', [])
+    
+    if ALL_MEMBERS_GROUP in groups:
+        print(f"✅ Group '{ALL_MEMBERS_GROUP}' already exists")
+        return True
+    
+    print(f"Group '{ALL_MEMBERS_GROUP}' not found, creating...")
+    resp = requests.post(
+        f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/groups",
+        auth=auth, headers=ocs_headers, data={"groupid": ALL_MEMBERS_GROUP}
+    )
+    
+    if resp.status_code == 200:
+        print(f"✅ Created group '{ALL_MEMBERS_GROUP}'")
+        # Add anchor user to the group
+        resp = requests.post(
+            f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/users/{ANCHOR_USER}/groups",
+            auth=auth, headers=ocs_headers, data={"groupid": ALL_MEMBERS_GROUP}
+        )
+        if resp.status_code == 200:
+            print(f"✅ Added anchor_user to '{ALL_MEMBERS_GROUP}'")
+        else:
+            print(f"⚠️  Could not add anchor_user to '{ALL_MEMBERS_GROUP}': {resp.text}")
+        return True
+    else:
+        print(f"❌ Failed to create group '{ALL_MEMBERS_GROUP}': {resp.text}")
+        return False
+
+
 def grant_read_access(group_folder, subfolder):
     resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
                      data={"path": f"{group_folder}/{subfolder}",
@@ -48,7 +94,6 @@ def grant_read_access(group_folder, subfolder):
     if resp.status_code != 200:
         print(f"❌ Failed to grant read access: {resp.text}")
         return False
-
     
     return True
 
@@ -172,7 +217,24 @@ def create_group_folder(group_name):
         print(f"❌ Failed to grant write for group on root")
         return False
     else:
-        print(f"✅ Grant write for group on root")
+        print(f"✅ Grant write for group on root")    
+
+    # Add Anchor_Group with full access for administration
+    print(f"Add {ANCHOR_GROUP} to groupfolder")   
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+                  auth=auth, headers=ocs_headers, data={"group": ANCHOR_GROUP})
+    if resp.status_code != 200:
+        print(f"❌ Failed to add {ANCHOR_GROUP} to groupfolder: {resp.text} code: {resp.status_code}")
+        return False
+    
+    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ANCHOR_GROUP}",
+                  auth=auth, headers=ocs_headers, data={"permissions": 31}) 
+    if resp.status_code != 200:
+        print(f"❌ Failed to set permissions on groupfolder for {ANCHOR_GROUP}: {resp.text} code: {resp.status_code}")
+        return False
+    print(f"✅ Successfully added {ANCHOR_GROUP} to groupfolder")   
+
+    # No ACL needed on root - group permissions on folder are sufficient
 
     
     # Create subfolder structure via WebDAV
@@ -215,12 +277,13 @@ def create_group_folder(group_name):
             else:
                 print(f"✅ Grant read access for all to subfolder {subfolder_name}")
         sleep()
-
+ 
     if not grant_acl_access(group_name, group_name, "", "30" ,"0"): #deny on root for group       
         print(f"❌ Failed to grant read for group on root")
         return False
     else:
         print(f"✅ Grant read for group on root")
+        
 	
     print("Remove Admin group from groupfolder")   
     resp = requests.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
@@ -234,7 +297,6 @@ def create_group_folder(group_name):
 
     return True
         
-
 
 
 def create_and_share_calendar(calendar_name, share_with_group):
@@ -258,7 +320,6 @@ def create_and_share_calendar(calendar_name, share_with_group):
     if not share_calendar_with_group(cal_id, ALL_MEMBERS_GROUP, False):
         return False
     return True
-
 
 
 def share_calendar_with_group(calendar_id, group_name, write_access):
@@ -311,7 +372,33 @@ def share_calendar_with_group(calendar_id, group_name, write_access):
     return True
 
 
+def check_collectives_app():
+    """Check if collectives app is enabled."""
+    resp = requests.get(
+        f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/apps?filter=enabled",
+        auth=auth, headers=ocs_headers
+    )
+    
+    if resp.status_code != 200:
+        print(f"❌ Failed to list enabled apps: {resp.text}")
+        return False
+    
+    apps = resp.json().get('ocs', {}).get('data', {}).get('apps', [])
+    
+    if 'collectives' in apps:
+        print("✅ Collectives app is enabled")
+        return True
+    else:
+        print("⚠️  Collectives app is disabled, skipping collective setup")
+        return False
+
+
 def create_circle_and_collective(group_name):
+    # Check if collectives app is enabled
+    if not check_collectives_app():
+        print("Skipping collective setup...")
+        return True
+    
     # Note: Circles are the permission layer for Collectives
     # circles are automatically created by collective 
     #print(f"Creating Circle for {group_name}...")
@@ -497,6 +584,12 @@ def run_group_setup(group_name):
         return
 
     print(f"🚀 Starting automation for: {group_name}")
+    
+    # Ensure ALL_MEMBERS_GROUP exists
+    if not ensure_all_members_group():
+        print("❌ Stopping setup due to group creation failure.")
+        return False
+    
     result = create_group(group_name)    
     
     if not result:

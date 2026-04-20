@@ -1,0 +1,74 @@
+global_groups:
+ - all_users
+ - GroupA
+ - GroupA_Lead
+ - GroupA_Subgroup1
+ - GroupA_Subgroup2
+ - GroupA_Subgroup3
+ - GroupB
+ - GroupB_Lead
+ - GroupB_Subgroup1
+ - GroupB_Subgroup2
+ - GroupB_Subgroup3
+groupfolders:
+ - name: "GroupA"
+   folders:
+   - path: "01_GroupA_Public"
+     block: []
+     read: ["all_users"]
+     write: ["GroupA"]
+   - path: "02_GroupA_Private"
+     block: []
+     read: ["GroupA"]
+     write: ["GroupA"]
+   - path: "02_GroupA_Archive"
+     block: []
+     read: ["GroupA"]
+     write: ["GroupA"]
+   - path: "02_GroupA_Private/SubGroup1"
+     block: []
+     read: ["GroupA"]
+     write: ["GroupA_Subgroup1", "GroupA_Lead"]
+   - path: "02_GroupA_Private/SubGroup1/internal"
+     block: ["GroupA"]
+     read: ["GroupA_Subgroup1", "GroupA_Lead"]
+     write: ["GroupA_Subgroup1", "GroupA_Lead"]
+   - path: "02_GroupA_Private/SubGroup2"
+     block: []
+     read: ["GroupA"]
+     write: ["GroupA_Subgroup2", "GroupA_Lead"]
+   - path: "02_GroupA_Private/SubGroup2/internal"
+     block: ["GroupA"]
+     read: ["GroupA_Subgroup2", "GroupA_Lead"]
+     write: ["GroupA_Subgroup2", "GroupA_Lead"]
+ - name: "GroupB"
+   folders:
+   - path: "01_GroupB_Public"
+     block: []
+     read: ["all_users"]
+     write: ["GroupB"]
+   - path: "02_GroupB_Private"
+     block: []
+     read: ["GroupB"]
+     write: ["GroupB"]
+   - path: "02_GroupB_Archive"
+     block: []
+     read: ["GroupB"]
+     write: ["GroupB"]
+   - path: "02_GroupB_Private/SubGroup1"
+     block: []
+     read: ["GroupB"]
+     write: ["GroupB_Subgroup1", "GroupB_Lead"]
+   - path: "02_GroupB_Private/SubGroup1/internal"
+     block: ["GroupB"]
+     read: ["GroupB_Subgroup1", "GroupB_Lead"]
+     write: ["GroupB_Subgroup1", "GroupB_Lead"]
+   - path: "02_GroupB_Private/SubGroup2"
+     block: []
+     read: ["GroupB"]
+     write: ["GroupB_Subgroup2", "GroupB_Lead"]
+   - path: "02_GroupB_Private/SubGroup2/internal"
+     block: ["GroupB"]
+     read: ["GroupB_Subgroup2", "GroupB_Lead"]
+     write: ["GroupB_Subgroup2", "GroupB_Lead"]
+

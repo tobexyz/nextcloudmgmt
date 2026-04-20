@@ -1,0 +1,16 @@
+# Test environment configuration
+export NC_URL="http://localhost:8080"
+export NC_ANCHOR_USER="anchor_user"
+export NC_ANCHOR_APP_PW="anchoruser123"
+export NC_ALL_MEMBERS_GROUP="all_users"
+export NC_ANCHOR_GROUP="Anchor_group"
+export NC_ADMIN_GROUP="admin"
+export NC_QUOTA_GB=10
+export NC_COLLECTIVE_NAME="Wiki"
+export NC_PUB_FOLDER_PREFIX="01"
+export NC_PRIV_FOLDER_PREFIX="02"
+export NC_PUBLIC_SUBFOLDER="Public"
+export NC_SUBFOLDERS="Public,Private,Archive"
+export NC_COLLECTIVES_FOLDER="Collectives"
+export NC_COLLECTIVES_BACKUP_FOLDER="Backup/Collectives"
+export NC_COLLECTIVES_BACKUP_COUNT=10
