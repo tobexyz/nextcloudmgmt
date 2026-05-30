@@ -20,7 +20,9 @@ The toolkit implements a permission structure that:
 |-----------|---------|--------|
 | `setup_working_group.py` | Creates complete WG infrastructure (folders, calendars, collectives, talk rooms) | ✅ Active |
 | `setup_folder_permissions.py` | Sets detailed ACL permissions on subfolders via WebDAV | ✅ Active |
-| `rights_compliance_report.py` | Audits existing infrastructure against permission standards | ✅ Active |
+| `check_compliance.py` | Config-driven rights compliance checker — least-privilege enforcement | ✅ Active |
+| `generate_usage_report.py` | Generates HTML usage dashboard from daily serverinfo statistics | ✅ Active |
+| `save_serverinfo.py` | Daily cron job — fetches Nextcloud serverinfo API and stores JSON to WebDAV | ✅ Active |
 | `collectives_backup.py` | Backs up WG collectives (wikis) to prevent data loss | ✅ Active |
 | `prepare.sh` | Environment setup script for dependencies | ✅ Active |
 
@@ -176,6 +178,126 @@ groupfolders:
      read: ["GroupC"]
      write: ["GroupC","Anchor_Group"]
 ```
+
+## Rights Compliance Checker
+
+The `check_compliance.py` script implements a least-privilege compliance process. It compares the actual Nextcloud permission state against the expected state derived from:
+
+1. **Implicit WG model** (from `setup_working_group.py`) — base permissions every WG should have
+2. **YAML config files** (same format as `setup_folder_permissions.py`) — fine-grained overrides
+
+The script automatically discovers **all group folders** on the server and checks them against the implicit model. YAML configs add detailed subfolder ACL checks for the groups they cover.
+
+### What it checks
+
+| Category | Checks |
+|----------|--------|
+| Group Folder Membership | Correct groups with correct permissions; admin group absent |
+| Root ACL | WG group denied on root (forces subfolder access) |
+| Subfolder ACLs | Expected ACLs present; no excess group permissions |
+| User ACLs | Direct user permissions flagged for review |
+| Shares | Correct share types and permissions per subfolder |
+| User Shares | Direct user shares flagged for review |
+| Public Links | No password → violation; no expiry → warning |
+| Calendar Shares | WG group writable; all_users read-only |
+| Collective Membership | Skipped gracefully if app is disabled |
+
+### YAML Config Format
+
+Same format as `setup_folder_permissions.py`. Supports a `group` override for cases where the internal group ID differs from the folder name:
+
+```yaml
+groupfolders:
+  - name: "Infrastruktur"
+    group: "BUNDLVHH-IT"  # optional: actual group ID if renamed
+    folders:
+      - path: "01_Infra_Public"
+        block: []
+        read: ["all_users"]
+        write: ["BUNDLVHH-IT"]
+```
+
+### Usage
+
+```bash
+# Check against one config file
+python3 check_compliance.py permissions.yaml
+
+# Check against multiple config files
+python3 check_compliance.py configs/*.yaml
+
+# Check against a directory of configs
+python3 check_compliance.py --config-dir configs/
+
+# Preview expected state without contacting the server
+python3 check_compliance.py --dry-run permissions.yaml
+
+# Upload report to Nextcloud after generation
+python3 check_compliance.py permissions.yaml --upload
+```
+
+### Output
+
+- **Markdown report** — saved to `reports/` and optionally uploaded to Nextcloud (viewable in Text app)
+- **JSON report** — saved to `reports/` for machine processing
+- **Exit code** — 0 if no violations, 1 if violations found (useful for cron alerting)
+
+### Finding Types
+
+| Status | Meaning | Severity |
+|--------|---------|----------|
+| OK | Actual matches expected | — |
+| DRIFT | Permission exists but differs from expected | violation (more permissive) or warning (less) |
+| MISSING | Expected permission not found on server | warning |
+| EXCESS | Permission exists but not in any config | violation (write/full) or warning (read) |
+
+### Periodic Execution
+
+Add to cron for continuous least-privilege enforcement:
+
+```bash
+# Daily compliance check at 7:00 AM
+0 7 * * * cd /path/to/project && source venv/bin/activate && python3 check_compliance.py configs/*.yaml --upload
+```
+
+## Usage Statistics Dashboard
+
+The `save_serverinfo.py` script fetches Nextcloud server statistics daily via the serverinfo API and stores them as JSON files on the server via WebDAV. The `generate_usage_report.py` script processes these files into a visual HTML dashboard.
+
+### Data Collection
+
+`save_serverinfo.py` runs daily via cron and stores files as `stats_raw_YYYY-MM-DD_HH-MM-SS.json` in the configured `NC_STATS_DIR`.
+
+### Report Generation
+
+`generate_usage_report.py` downloads all stored stats files, extracts metrics, and generates a self-contained HTML page with Chart.js charts:
+
+- **Users Over Time** — active users (24h) and total registered users
+- **Storage Growth** — total files and database size
+- **Free Disk Space** — remaining disk space trend
+
+### Usage
+
+```bash
+# Generate and upload the usage report
+python3 generate_usage_report.py
+```
+
+The report is uploaded as `usage_report.html` to the parent folder of `NC_STATS_DIR`.
+
+### Periodic Execution
+
+```bash
+# Daily stats collection at 6:00 AM
+0 6 * * * cd /path/to/project && source venv/bin/activate && python3 save_serverinfo.py
+
+# Generate report at 6:05 AM (after stats are collected)
+5 6 * * * cd /path/to/project && source venv/bin/activate && python3 generate_usage_report.py
+```
+
+### Environment Variables
+
+Both scripts use the same env vars: `NC_URL`, `NC_ANCHOR_USER`, `NC_ANCHOR_APP_PW`, `NC_STATS_DIR`.
 
 ## Documentation
 

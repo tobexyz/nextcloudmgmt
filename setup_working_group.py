@@ -442,6 +442,9 @@ def create_circle_and_collective(group_name):
 
     if resp.status_code == 200:
         print(f"✅ Collective created successfully!")
+    elif resp.status_code == 404:
+        print(f"⚠️ Collective app not installed, skipping collective creation")
+        return True
     else:
         print(f"❌ Failed to create Collective: {resp.text}")
         return False
