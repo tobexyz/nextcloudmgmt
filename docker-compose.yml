@@ -1,0 +1,18 @@
+version: "3.3"
+services:
+  save-serverinfo:
+    build: .
+    # docker_apps' scheduled-mode systemd unit runs
+    # `docker compose ... --env-file ../.env run --rm <compose_service>`
+    # (ansible-host-dev/roles/docker_apps/templates/docker-app.service.j2) --
+    # that flag only makes ${VAR} substitutions available while parsing this
+    # file, it does NOT inject anything into the container's own runtime
+    # environment on its own (same gotcha fixed for bfs_odl/smarthome).
+    # save_serverinfo.py's env footprint is a small, fixed set (unlike
+    # nextcloud-maintanance's open-ended per-user list), so forwarding each
+    # one explicitly here matches the bfs_odl/smarthome precedent.
+    environment:
+      NC_URL: "${NC_URL}"
+      NC_ANCHOR_USER: "${NC_ANCHOR_USER}"
+      NC_ANCHOR_APP_PW: "${NC_ANCHOR_APP_PW}"
+      NC_STATS_DIR: "${NC_STATS_DIR}"

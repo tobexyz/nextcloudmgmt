@@ -1,0 +1,9 @@
+# Pinned dependency set for the containerized cron job (save_serverinfo.py
+# only -- the daily 00 3 * * * processBUND_backup.sh cron never calls
+# collectives_backup.py or any of the other toolkit scripts here, so their
+# extra deps (caldav, webdavclient3, pyyaml -- see the project's own
+# requirements.txt) are deliberately not installed in this image).
+# Exact pin per this project's dependency-versions rule (the project's own
+# requirements.txt uses >=, which is fine for local toolkit dev but not for
+# a container build).
+requests==2.34.2
