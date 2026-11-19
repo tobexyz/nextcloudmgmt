@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import json
+import getpass
 from requests.auth import HTTPBasicAuth
 from webdav3.client import Client
 
@@ -32,12 +33,46 @@ auth = HTTPBasicAuth(ANCHOR_USER, ANCHOR_APP_PW)
 ocs_headers = {"OCS-APIRequest": "true",               
                "Accept": "application/json"}
 
+# Shared session: the password confirmation is stored server-side in the
+# PHP session, so all calls must share the same cookie jar.
+http = requests.Session()
+http.auth = auth
+
 
 
 
 def sleep():
     print(f"💤Sleeping a bit...")
     time.sleep(SLEEP_TIME)
+
+
+def confirm_password():
+    """
+    Since the Nextcloud update, app passwords no longer bypass the password
+    confirmation on sensitive endpoints (groups, groupfolders, ...).
+    The real account password is asked interactively (never stored/logged)
+    and confirmed once for this session (valid for ~30 minutes).
+    The 2FA code is not needed for this step.
+    """
+    print(f"🔐 Password confirmation required for user '{ANCHOR_USER}'.")
+    password = getpass.getpass("Password (not the app password): ")
+    if not password:
+        print("❌ No password entered.")
+        return False
+    try:
+        resp = http.put(
+            f"{NEXTCLOUD_URL}/ocs/v2.php/core/apppassword/confirm",
+            headers=ocs_headers | {"Content-Type": "application/json"},
+            data=json.dumps({"password": password}),
+            timeout=10
+        )
+    finally:
+        del password
+    if resp.status_code == 200:
+        print("✅ Password confirmed")
+        return True
+    print(f"❌ Password confirmation failed: {resp.status_code} {resp.text}")
+    return False
 
 
 def ensure_all_members_group():
@@ -47,7 +82,7 @@ def ensure_all_members_group():
         return True
     
     print(f"Checking if group '{ALL_MEMBERS_GROUP}' exists...")
-    resp = requests.get(
+    resp = http.get(
         f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/groups",
         auth=auth, headers=ocs_headers
     )
@@ -63,7 +98,7 @@ def ensure_all_members_group():
         return True
     
     print(f"Group '{ALL_MEMBERS_GROUP}' not found, creating...")
-    resp = requests.post(
+    resp = http.post(
         f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/groups",
         auth=auth, headers=ocs_headers, data={"groupid": ALL_MEMBERS_GROUP}
     )
@@ -71,7 +106,7 @@ def ensure_all_members_group():
     if resp.status_code == 200:
         print(f"✅ Created group '{ALL_MEMBERS_GROUP}'")
         # Add anchor user to the group
-        resp = requests.post(
+        resp = http.post(
             f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/users/{ANCHOR_USER}/groups",
             auth=auth, headers=ocs_headers, data={"groupid": ALL_MEMBERS_GROUP}
         )
@@ -86,7 +121,7 @@ def ensure_all_members_group():
 
 
 def grant_read_access(group_folder, subfolder):
-    resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
+    resp = http.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
                      data={"path": f"{group_folder}/{subfolder}",
                          "shareType": 1,
                          "shareWith": f"{ALL_MEMBERS_GROUP}",
@@ -98,7 +133,7 @@ def grant_read_access(group_folder, subfolder):
     return True
 
 def grant_write_access(group_name, group_folder, subfolder):   
-    resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
+    resp = http.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares",auth=auth, headers=ocs_headers, 
                      data={"path": f"{group_folder}/{subfolder}",
                         "shareType": 1,
                          "shareWith": f"{group_name}",
@@ -107,6 +142,23 @@ def grant_write_access(group_name, group_folder, subfolder):
         print(f"❌ Failed to grant write access: {resp.text}")
         return False
     return True
+
+def wait_for_mount(folder_name, timeout=30, interval=2):
+    """Poll WebDAV until the new groupfolder is visible for the anchor user."""
+    url = f"{NEXTCLOUD_URL}/remote.php/dav/files/{ANCHOR_USER}/{folder_name}"
+    deadline = time.time() + timeout
+    while True:
+        resp = requests.request("PROPFIND", url, auth=auth, headers={"Depth": "0"})
+        if resp.status_code in (200, 207):
+            print(f"✅ Groupfolder '{folder_name}' is visible for {ANCHOR_USER}")
+            return True
+        print(f"   -> not visible yet (HTTP {resp.status_code})")
+        if time.time() >= deadline:
+            print(f"❌ Groupfolder '{folder_name}' never became visible for {ANCHOR_USER} "
+                  f"(is {ANCHOR_USER} member of '{ADMIN_GROUP}'?)")
+            return False
+        time.sleep(interval)
+
 
 def grant_acl_access(group_name, group_folder, subfolder, mask, permisisons):
     headers = {'Content-Type': 'application/xml'} | ocs_headers
@@ -147,7 +199,7 @@ def create_group_folder(group_name):
     """
     print(f"Creating group folder...")
     folder_name = f"{group_name}"
-    folder_req = requests.post(
+    folder_req = http.post(
         f"{NEXTCLOUD_URL}/apps/groupfolders/folders",
         auth=auth, headers=ocs_headers, data={"mountpoint": folder_name}
     )
@@ -157,14 +209,14 @@ def create_group_folder(group_name):
         print(f"❌ API Error: Status {folder_req.status_code}")
         print(f"❌ Response: {folder_req.text}") 
         return False
-
+    print(f"   -> Folder req: {folder_req.json()}")
     folder_id = folder_req.json()['ocs']['data']['id']
     print(f"   -> Folder ID: {folder_id}")
     sleep()
     # Set Quota
     quota_bytes = QUOTA_GB * 1024 * 1024 * 1024
     print(f"   -> Setting quota to {QUOTA_GB} GB in bytes {quota_bytes}...")
-    resp = requests.post(
+    resp = http.post(
         f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/quota",
         auth=auth,
         headers=ocs_headers,
@@ -176,7 +228,7 @@ def create_group_folder(group_name):
         return False
     sleep()
     # 1. Enable ACL support
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/acl",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/acl",
               auth=auth, headers=ocs_headers, data={"acl": "1"})
     if resp.status_code != 200:
         print(f"❌ Failed to enable acl: {resp.text}")
@@ -185,12 +237,12 @@ def create_group_folder(group_name):
     # give anchor_user permission to the groupfolder!!
     #   
     print("Add Admin group to groupfolder")   
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": ADMIN_GROUP})
     if resp.status_code != 200:
         print(f"❌ Failed to create premisson to group admin on groupfolder: {resp.text} code: {resp.status_code}")
         return False
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
                   auth=auth, headers=ocs_headers, data={"permissions": 31})
     if resp.status_code != 200:
         print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
@@ -200,18 +252,21 @@ def create_group_folder(group_name):
     # give group permission to the groupfolder!!
     #      
     print(f"Add group {group_name} to groupfolder")   
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": group_name})
     if resp.status_code != 200:
         print(f"❌ Failed to create premisson to group admin on groupfolder: {resp.text} code: {resp.status_code}")
         return False
     
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{group_name}",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{group_name}",
                   auth=auth, headers=ocs_headers, data={"permissions": 31}) 
     if resp.status_code != 200:
         print(f"❌ Failed to set premisson on groupfolder: {resp.text} code: {resp.status_code}")
         return False
     print(f"✅ Successfully added group {group_name} to groupfolder")   
+
+    if not wait_for_mount(group_name):
+        return False
 
     if not grant_acl_access(group_name, group_name, "", "30" ,"31"): #write on root for group       
         print(f"❌ Failed to grant write for group on root")
@@ -221,13 +276,13 @@ def create_group_folder(group_name):
 
     # Add Anchor_Group with full access for administration
     print(f"Add {ANCHOR_GROUP} to groupfolder")   
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups",
                   auth=auth, headers=ocs_headers, data={"group": ANCHOR_GROUP})
     if resp.status_code != 200:
         print(f"❌ Failed to add {ANCHOR_GROUP} to groupfolder: {resp.text} code: {resp.status_code}")
         return False
     
-    resp = requests.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ANCHOR_GROUP}",
+    resp = http.post(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ANCHOR_GROUP}",
                   auth=auth, headers=ocs_headers, data={"permissions": 31}) 
     if resp.status_code != 200:
         print(f"❌ Failed to set permissions on groupfolder for {ANCHOR_GROUP}: {resp.text} code: {resp.status_code}")
@@ -286,7 +341,7 @@ def create_group_folder(group_name):
         
 	
     print("Remove Admin group from groupfolder")   
-    resp = requests.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
+    resp = http.delete(f"{NEXTCLOUD_URL}/apps/groupfolders/folders/{folder_id}/groups/{ADMIN_GROUP}",
                   auth=auth, headers=ocs_headers)
     if resp.status_code != 200:
         print(f"❌ Failed to remove admin group from groupfolder: {resp.text} code: {resp.status_code}")
@@ -335,7 +390,7 @@ def share_calendar_with_group(calendar_id, group_name, write_access):
       </O:set>
     </O:share>"""
    
-    resp = requests.post(
+    resp = http.post(
         cal_url, auth=auth, data=share_xml,
         headers={'Content-Type': 'text/xml'}
     )
@@ -358,7 +413,7 @@ def share_calendar_with_group(calendar_id, group_name, write_access):
       </x4:set>
     </x4:share>"""
    
-    resp = requests.post(
+    resp = http.post(
         cal_url, auth=auth, data=share_xml,
         headers={'Content-Type': 'text/xml'}
     )
@@ -374,7 +429,7 @@ def share_calendar_with_group(calendar_id, group_name, write_access):
 
 def check_collectives_app():
     """Check if collectives app is enabled."""
-    resp = requests.get(
+    resp = http.get(
         f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/apps?filter=enabled",
         auth=auth, headers=ocs_headers
     )
@@ -403,7 +458,7 @@ def create_circle_and_collective(group_name):
     # circles are automatically created by collective 
     #print(f"Creating Circle for {group_name}...")
     #circle_name=f"Circle_{group_name}"
-    #circle_resp = requests.post(
+    #circle_resp = http.post(
     #    f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles",
     #    auth=auth,
     #    headers=ocs_headers,
@@ -430,7 +485,7 @@ def create_circle_and_collective(group_name):
     #sleep()
     # Create the Collective
     print(f"Creating Collective '{group_name}'...")
-    resp = requests.post(
+    resp = http.post(
         f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives",
         auth=auth,
         headers=ocs_headers,
@@ -456,7 +511,7 @@ def create_circle_and_collective(group_name):
     
     sleep()
     print(f"set collective to allow only moderators and administrators to edit")
-    resp = requests.put(
+    resp = http.put(
         f"{NEXTCLOUD_URL}/ocs/v2.php/apps/collectives/api/v1.0/collectives/{collective_id}/editLevel",
         auth=auth,
         headers=ocs_headers,
@@ -486,7 +541,7 @@ def add_group_to_circle(circle_id, group_name, level):
     print(f"   -> Adding group '{group_name}' to Circle...")
     payload = json.dumps({"userId": group_name,"type":2})
     headers = ocs_headers | {"content-type":"application/json"}    
-    resp = requests.post(
+    resp = http.post(
         f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles/{circle_id}/members",
         auth=auth,
         headers=headers,
@@ -514,7 +569,7 @@ def set_grant_level_of_member(circle_id, member_id, level):
     # Grant level to member
     print(f"Granting level {level} to member {member_id} of circle {circle_id}")
     headers = ocs_headers | {"content-type":"application/json"} 
-    resp = requests.put(
+    resp = http.put(
         f"{NEXTCLOUD_URL}/ocs/v2.php/apps/circles/circles/{circle_id}/members/{member_id}/level",
         auth=auth,
         headers=headers,
@@ -530,7 +585,7 @@ def set_grant_level_of_member(circle_id, member_id, level):
 def create_group(group_name):
     # 1. Create the User Group
     print(f"Creating group '{group_name}'...")
-    response = requests.post(
+    response = http.post(
         f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/groups",
         auth=auth, headers=ocs_headers, data={"groupid": group_name}
     )
@@ -544,7 +599,7 @@ def create_group(group_name):
     sleep()
     # 2. Add Anchor User to the new group (Safety net)
     print(f"Adding anchor user to '{group_name}'...")
-    response = requests.post(
+    response = http.post(
         f"{NEXTCLOUD_URL}/ocs/v1.php/cloud/users/{ANCHOR_USER}/groups",
         auth=auth, headers=ocs_headers, data={"groupid": group_name}
     )
@@ -560,7 +615,7 @@ def create_group(group_name):
 def create_talk_room(group_name):
     print(f"Creating Talk room for group '{group_name}'...")
     headers = ocs_headers | {"content-type":"application/json"}    
-    resp = requests.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v4/room",auth=auth, headers=headers, 
+    resp = http.post(f"{NEXTCLOUD_URL}/ocs/v2.php/apps/spreed/api/v4/room",auth=auth, headers=headers, 
                      data=json.dumps({"roomType": 2, 
                                       "roomName": group_name,
                                       "listable":1,
@@ -587,6 +642,10 @@ def run_group_setup(group_name):
         return
 
     print(f"🚀 Starting automation for: {group_name}")
+
+    if not confirm_password():
+        print("❌ Stopping setup: password confirmation failed.")
+        return False
     
     # Ensure ALL_MEMBERS_GROUP exists
     if not ensure_all_members_group():
